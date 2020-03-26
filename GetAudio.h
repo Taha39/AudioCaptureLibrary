@@ -35,6 +35,9 @@ namespace AudioCapture {
 		bool continueCapture{ false };
 		REFERENCE_TIME hnsActualDuration{ 0 };
 
+		int bitsPerSample{ 0 };
+		int sampleRate{ 0 };
+		size_t numberOfChannels{ 0 };
 
 	private:
 		bool setConfiguration();
