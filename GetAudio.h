@@ -1,12 +1,16 @@
 
-#include <iostream>
 #include <mmdeviceapi.h>
 #include <Audioclient.h>
+#include <thread>
 
 namespace AudioCapture {
 	class callback {
 	public:
-		virtual void capturedData(const uint8_t* data, int size) = 0;
+		virtual void onData(const uint8_t* data, int size,
+			int bits_per_sample,
+			int sample_rate,
+			size_t number_of_channels,
+			size_t number_of_frames) = 0;
 		virtual ~callback() {};
 	};
 
@@ -14,12 +18,14 @@ namespace AudioCapture {
 	class AudioCaptureRaw
 	{
 	public:
-		AudioCaptureRaw() = default;
-		bool startThread(callback* ob);
-		void InitExit();
-		void stopThread(bool value);
+		//AudioCaptureRaw() = default;
+		
+		~AudioCaptureRaw();
+		
+		void stopCapture();
+		bool startCapture(callback* cb);
 	private:
-
+		std::thread t_;
 		IAudioClient *pAudioClient_{ nullptr };
 		IAudioCaptureClient *pAudioCaptureClient_{ nullptr };
 
@@ -34,5 +40,6 @@ namespace AudioCapture {
 		bool setConfiguration();
 		HRESULT getDefaultDevice(IMMDevice **ppMMDevice);
 		void readPacket(UINT8 *buf, callback* ob);
+		void startThread(callback* ob);
 	};
 }	//AudioCapture

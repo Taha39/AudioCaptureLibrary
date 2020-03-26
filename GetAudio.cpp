@@ -1,6 +1,8 @@
 
 #include <thread>
 #include "GetAudio.h"
+#include <cassert>
+#include <iostream>
 #define EXIT_ON_ERROR(hres)  \
               if (FAILED(hres)) { return false; }
 
@@ -8,6 +10,10 @@
 #define REFTIMES_PER_MILLISEC  10000
 
 const IID IID_IAudioClient = __uuidof(IAudioClient);
+
+int bits_per_sample = 0;//?
+int sample_rate = 0;//?
+size_t	number_of_channels = 0;//?
 
 namespace AudioCapture {
 
@@ -154,6 +160,9 @@ namespace AudioCapture {
 
 			// Calculate the actual duration of the allocated buffer.
 			hnsActualDuration = (double)REFTIMES_PER_SEC *	bufferFrameCount / pwfx->nSamplesPerSec;
+		bits_per_sample = pwfx->wBitsPerSample;
+	    sample_rate = pwfx->nSamplesPerSec;//?
+		number_of_channels = pwfx->nChannels;
 
 		CoTaskMemFree(pwfx);
 
@@ -212,33 +221,47 @@ namespace AudioCapture {
 		return S_OK;
 	}
 
-	bool AudioCaptureRaw::startThread(callback* ob)
-	{
-		if (!onceAudioInit)
-		{
-			onceAudioInit = setConfiguration();
-		}
+	AudioCaptureRaw::~AudioCaptureRaw() {
+		if (continueCapture) stopCapture();
+		if (pAudioCaptureClient_) pAudioCaptureClient_->Release();
+	}
+
+	void AudioCaptureRaw::stopCapture() {
+		assert(continueCapture);
+		continueCapture = false;
+		if (t_.joinable()) t_.join();
+	}
+
+	bool AudioCaptureRaw::startCapture(callback* cb) {
+		assert(cb);
+		assert(continueCapture == false);
+		if(onceAudioInit == false)
+				onceAudioInit = setConfiguration();
+		assert(onceAudioInit);
 		if (onceAudioInit) {
 			continueCapture = true;
-			std::thread threadObj([&] {
-				callback* myob = ob;
-				while (continueCapture) {
-					if (!onceAudioInit)
-					{
-						onceAudioInit = setConfiguration();
-					}
-
-					if (onceAudioInit)
-						readPacket(rawbuffer, myob);
-					else
-					{
-						printf(" \n\n  *****setConfiguration() failed...\n");
-					}
-				}
-			});
-			threadObj.detach();
+			t_ = std::thread{ &AudioCaptureRaw::startThread, this, cb };
 		}
-		return continueCapture;
+			
+		return onceAudioInit;
+	}
+
+	void AudioCaptureRaw::startThread(callback* cb)
+	{
+		while (continueCapture) {
+			if (!onceAudioInit)
+			{
+				onceAudioInit = setConfiguration();
+			}
+
+			if (onceAudioInit)
+				readPacket(rawbuffer, cb);
+			else
+			{
+				std::cout << "\nset configuration fails\n";
+			}
+		}
+			
 	}
 
 	void AudioCaptureRaw::readPacket(UINT8 *buf, callback* ob)
@@ -333,7 +356,17 @@ namespace AudioCapture {
 				//return 0;							
 			}
 
-			ob->capturedData(buf, lBytesToWrite);
+			/*
+			const uint8_t* data, int size,
+			int bits_per_sample,
+			int sample_rate,
+			size_t number_of_channels,
+			size_t number_of_frames
+			*/
+			//const uint8_t* data = buf;
+		
+			size_t number_of_frames = nNumFramesToRead;
+			ob->onData(buf, lBytesToWrite, bits_per_sample, sample_rate, number_of_channels, number_of_frames);
 
 		}
 		catch (...)
@@ -343,12 +376,4 @@ namespace AudioCapture {
 
 	}
 
-	void AudioCaptureRaw::stopThread(bool value) {
-		continueCapture = false;
-	}
-
-	void AudioCaptureRaw::InitExit()
-	{
-		pAudioCaptureClient_->Release();
-	}
 }	//AudioCapture
