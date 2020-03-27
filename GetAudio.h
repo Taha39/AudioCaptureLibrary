@@ -1,29 +1,21 @@
-
+#ifndef _RAW_AUDIO_CAPTURERE_H__
+#define _RAW_AUDIO_CAPTURERE_H__
 #include <mmdeviceapi.h>
 #include <Audioclient.h>
 #include <thread>
+#include "audio_capturer.h"
 
 namespace AudioCapture {
-	class callback {
-	public:
-		virtual void onData(const uint8_t* data, int size,
-			int bits_per_sample,
-			int sample_rate,
-			size_t number_of_channels,
-			size_t number_of_frames) = 0;
-		virtual ~callback() {};
-	};
 
-
-	class AudioCaptureRaw
+	using callback = audio::callback;
+	class AudioCaptureRaw : public audio::capturer
 	{
 	public:
-		//AudioCaptureRaw() = default;
-		
-		~AudioCaptureRaw();
-		
-		void stopCapture();
-		bool startCapture(callback* cb);
+		~AudioCaptureRaw() override;
+		void stop() override;
+		bool start(callback* cb) override;
+		std::string logs() override;
+
 	private:
 		std::thread t_;
 		IAudioClient *pAudioClient_{ nullptr };
@@ -46,3 +38,5 @@ namespace AudioCapture {
 		void startThread(callback* ob);
 	};
 }	//AudioCapture
+
+#endif//_RAW_AUDIO_CAPTURERE_H__

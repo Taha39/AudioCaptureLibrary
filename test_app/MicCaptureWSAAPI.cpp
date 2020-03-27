@@ -1,12 +1,13 @@
 
 #include <iostream>
 
-#include "GetAudio.h"
+#include "audio_capturer.h"
 #include <cassert>
 #include <chrono>
+#include <thread>
 
 
-class AudioCaptureTest:public AudioCapture::callback {
+class AudioCaptureTest:public audio::callback {
 public:
 	AudioCaptureTest() {
 		fopen_s(&ftest, "CAudio.pcm", "wb");
@@ -17,7 +18,8 @@ public:
 		int sample_rate,
 		size_t number_of_channels,
 		size_t number_of_frames) override {
-		std::cout << "bits per sample " << bits_per_sample << " sample rate = " << sample_rate << " channel = " << number_of_channels << '\n';
+		std::cout << "#";
+		//std::cout << "bits per sample " << bits_per_sample << " sample rate = " << sample_rate << " channel = " << number_of_channels << '\n';
 		fwrite(data, 1, size, ftest);
 	}
 	
@@ -31,15 +33,19 @@ public:
 
 int main()
 {
-	AudioCapture::AudioCaptureRaw audioSource{};
+	auto capturer_ = audio::get_capturer();
 	AudioCaptureTest audioWriter{};
-	audioSource.startCapture(&audioWriter);
+	std::cout << "audio capture started\n";
+	capturer_->start(&audioWriter);
 	
-	int close = 0;
 	std::this_thread::sleep_for(std::chrono::seconds(15));
+
 	
-	audioSource.stopCapture();
 	
+	capturer_->stop();
+	std::cout << "\n stoped capture\n";
+	std::cout << capturer_->logs() << '\n';
+
 	
 	return 0;
 

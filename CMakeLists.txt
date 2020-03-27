@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.7)
 add_definitions(/ZI)
 add_subdirectory(test_app)
 add_library(audio_capturer
+	audio_capturer.h
+	audio_capturer.cpp
 	GetAudio.h
 	GetAudio.cpp
 	)
