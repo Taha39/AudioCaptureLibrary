@@ -5,8 +5,6 @@
 #include <iostream>
 #include <sstream>
 
-#define EXIT_ON_ERROR(hres)  \
-              if (FAILED(hres)) { return false; }
 
 #define REFTIMES_PER_SEC  10000000
 #define REFTIMES_PER_MILLISEC  10000
@@ -145,7 +143,12 @@ namespace AudioCapture {
 		UINT32 bufferFrameCount;
 		// Get the size of the allocated buffer.
 		hr = pAudioClient_->GetBufferSize(&bufferFrameCount);
-		EXIT_ON_ERROR(hr)
+		if (FAILED(hr))
+		{
+			loger_ << "IAudioClient::GetBufferSize failed: hr = " << hr << std::endl;
+			pAudioClient_->Release();
+			return false;
+		}
 
 			// Calculate the actual duration of the allocated buffer.
 		hnsActualDuration = (double)REFTIMES_PER_SEC *	bufferFrameCount / pwfx->nSamplesPerSec;
