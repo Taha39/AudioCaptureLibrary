@@ -1,13 +1,17 @@
 
 #include <thread>
 #include "GetAudio.h"
-#define EXIT_ON_ERROR(hres)  \
-              if (FAILED(hres)) { return false; }
+#include <cassert>
+#include <iostream>
+#include <sstream>
+
 
 #define REFTIMES_PER_SEC  10000000
 #define REFTIMES_PER_MILLISEC  10000
 
 const IID IID_IAudioClient = __uuidof(IAudioClient);
+
+static std::ostringstream loger_;
 
 namespace AudioCapture {
 
@@ -27,7 +31,8 @@ namespace AudioCapture {
 			(void**)&pAudioClient_);
 
 		if (FAILED(hr)) {
-			printf("IMMDevice::Activate(IAudioClient) failed: hr = 0x%08x", hr);
+			loger_ << "IMMDevice::Activate(IAudioClient) failed: hr = " << hr << std::endl;
+
 			return false;
 		}
 
@@ -37,7 +42,7 @@ namespace AudioCapture {
 		hr = pAudioClient_->GetDevicePeriod(&hnsDefaultDevicePeriod, NULL);
 		if (FAILED(hr))
 		{
-			printf("IAudioClient::GetDevicePeriod failed: hr = 0x%08x\n", hr);
+			loger_ << "IAudioClient::GetDevicePeriod failed: hr = " << hr << std::endl;
 			pAudioClient_->Release();
 			return false;
 		}
@@ -49,7 +54,7 @@ namespace AudioCapture {
 		hr = pAudioClient_->GetMixFormat(&pwfx); // we free pwfx
 		if (FAILED(hr))
 		{
-			printf("IAudioClient::GetMixFormat failed: hr = 0x%08x\n", hr);
+			loger_ << "IAudioClient::GetMixFormat failed: hr = " << hr << std::endl;
 			CoTaskMemFree(pwfx);
 			pAudioClient_->Release();
 			return false;
@@ -58,14 +63,14 @@ namespace AudioCapture {
 		hr = pAudioClient_->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, pwfx,
 			&pWfxClosestMatch);
 		if (hr == S_OK) {
-			printf("\n*** Is format supported success... ****\n");
-			printf("\n pwfx->nChannels [%d], pwfx->wBitsPerSample [%d]",
-				pwfx->nChannels, pwfx->wBitsPerSample);
+			loger_ << "\n*** Is format supported success... ****\n" << std::endl;
+			loger_ << "Channels: " << pwfx->nChannels << ", BitsPerSample: " << pwfx->wBitsPerSample
+				<< ", SamplesPerSeconds: " << pwfx->nSamplesPerSec << std::endl;
 		}
 		else {
-			printf("\n*** Is format supported failed hr [%d] ****\n", hr);
-			printf("\n pwfx->nChannels [%d], pwfx->wBitsPerSample [%d], pWfxClosestMatch->nChannels [%d], pWfxClosestMatch->wBitsPerSample [%d]",
-				pwfx->nChannels, pwfx->wBitsPerSample, pWfxClosestMatch->nChannels, pWfxClosestMatch->wBitsPerSample);
+			loger_ << "\n*** Is format supported failed hr [%d] ****\n" << std::endl;
+			loger_  << "Channels: " << pwfx->nChannels << ", BitsPerSample: " << pwfx->wBitsPerSample
+				<< ", SamplesPerSeconds: " << pwfx->nSamplesPerSec << std::endl;
 		}
 		// coerce int-XX wave format (like int-16 or int-32)
 		// can do this in-place since we're not changing the size of the format
@@ -80,8 +85,6 @@ namespace AudioCapture {
 
 			pwfx->nBlockAlign = pwfx->nChannels * pwfx->wBitsPerSample / 8;
 			pwfx->nAvgBytesPerSec = pwfx->nBlockAlign * pwfx->nSamplesPerSec;
-			//        if(1)
-			//        printf("come in WAVE_FORMAT_IEEE_FLOAT ");
 			break;
 
 		case WAVE_FORMAT_EXTENSIBLE: // 65534
@@ -95,16 +98,14 @@ namespace AudioCapture {
 				// comment this out and set wBitsPerSample to  pwfex->wBitsPerSample = getBitsPerSample(); to get an arguably "better" quality 32 bit pcm
 				// unfortunately flash media live encoder basically rejects 32 bit pcm, and it's not a huge gain sound quality-wise, so disabled for now.
 				pwfx->wBitsPerSample = pwfx->wBitsPerSample / 2;
-				//  pwfx->nSamplesPerSec=44100;
 				pEx->Samples.wValidBitsPerSample = pwfx->wBitsPerSample;
 				pwfx->nBlockAlign = pwfx->nChannels * pwfx->wBitsPerSample / 8;
 				pwfx->nAvgBytesPerSec = pwfx->nBlockAlign * pwfx->nSamplesPerSec;
-				//   printf("come in WAVE_FORMAT_EXTENSIBLE ");
 				// see also setupPwfex method
 			}
 			else
 			{
-				printf("Don't know how to coerce mix format to int-16\n");
+				loger_ << "Don't know how to coerce mix format to int-16" << std::endl;
 				CoTaskMemFree(pwfx);
 				pAudioClient_->Release();
 				return false;
@@ -112,8 +113,7 @@ namespace AudioCapture {
 			break;
 
 		default:
-			printf("Don't know how to coerce WAVEFORMATEX with wFormatTag = 0x%08x to int-16\n", pwfx->wFormatTag);
-			CoTaskMemFree(pwfx);
+			loger_ << "Don't know how to coerce WAVEFORMATEX" << std::endl;
 			pAudioClient_->Release();
 			return false;
 		}
@@ -132,28 +132,29 @@ namespace AudioCapture {
 			0, pwfx, 0);
 		if (FAILED(hr))
 		{
-			printf("IAudioClient::Initialize failed: hr = 0x%08x\n", hr);
+			loger_ << "IAudioClient::Initialize failed: hr = " << hr << std::endl;
 			pAudioClient_->Release();
 			return false;
 		}
 
 		nBlockAlign_ = pwfx->nBlockAlign;
 
-		pwfx->nSamplesPerSec = 88200;
-		if ((pwfx->nSamplesPerSec != 44100) && (pwfx->nSamplesPerSec != 48000) && (pwfx->nSamplesPerSec != 88200) &&
-			(pwfx->nSamplesPerSec != 96000) && (pwfx->nSamplesPerSec != 192000))
-		{
-			return false;
-		}
-
 
 		UINT32 bufferFrameCount;
 		// Get the size of the allocated buffer.
 		hr = pAudioClient_->GetBufferSize(&bufferFrameCount);
-		EXIT_ON_ERROR(hr)
+		if (FAILED(hr))
+		{
+			loger_ << "IAudioClient::GetBufferSize failed: hr = " << hr << std::endl;
+			pAudioClient_->Release();
+			return false;
+		}
 
 			// Calculate the actual duration of the allocated buffer.
-			hnsActualDuration = (double)REFTIMES_PER_SEC *	bufferFrameCount / pwfx->nSamplesPerSec;
+		hnsActualDuration = (double)REFTIMES_PER_SEC *	bufferFrameCount / pwfx->nSamplesPerSec;
+		bitsPerSample = pwfx->wBitsPerSample;
+	    sampleRate = pwfx->nSamplesPerSec;//?
+		numberOfChannels = pwfx->nChannels;
 
 		CoTaskMemFree(pwfx);
 
@@ -163,7 +164,7 @@ namespace AudioCapture {
 
 		if (FAILED(hr))
 		{
-			printf("IAudioClient::GetService(IAudioCaptureClient) failed: hr 0x%08x\n", hr);
+			loger_ << "IAudioClient::GetService(IAudioCaptureClient) failed: hr = " << hr << std::endl;
 			pAudioClient_->Release();
 			return false;
 		}
@@ -172,15 +173,15 @@ namespace AudioCapture {
 		// call IAudioClient::Start
 		hr = pAudioClient_->Start();
 		if (FAILED(hr)) {
-			printf("IAudioClient::Start failed: hr = 0x%08x\n", hr);
+			loger_ << "IAudioClient::Start failed: hr = " << hr << std::endl;
 			pAudioCaptureClient_->Release();
 			pAudioClient_->Release();
 			return false;
 		}
-		//pAudioClient_->Release();
 		return true;
 	}
 
+	//todo: no need to return HRESULT, return true/false
 	HRESULT AudioCaptureRaw::getDefaultDevice(IMMDevice **ppMMDevice)
 	{
 		HRESULT hr = S_OK;
@@ -195,7 +196,7 @@ namespace AudioCapture {
 
 		if (FAILED(hr))
 		{
-			printf("CoCreateInstance(IMMDeviceEnumerator) failed: hr = 0x%08x\n", hr);
+			loger_ << "CoCreateInstance(IMMDeviceEnumerator) failed: hr =" << hr << std::endl;
 			return hr;
 		}
 
@@ -205,40 +206,61 @@ namespace AudioCapture {
 
 		if (FAILED(hr))
 		{
-			printf("IMMDeviceEnumerator::GetDefaultAudioEndpoint failed: hr = 0x%08x\n", hr);
+			loger_ << "IMMDeviceEnumerator::GetDefaultAudioEndpoint failed: hr = " << hr << std::endl;
 			return hr;
 		}
 
 		return S_OK;
 	}
 
-	bool AudioCaptureRaw::startThread(callback* ob)
-	{
-		if (!onceAudioInit)
-		{
-			onceAudioInit = setConfiguration();
-		}
+	AudioCaptureRaw::~AudioCaptureRaw() {
+		if (continueCapture) stop();
+		if (pAudioCaptureClient_) pAudioCaptureClient_->Release();
+	}
+
+	void AudioCaptureRaw::stop() {
+		assert(continueCapture);
+		continueCapture = false;
+		if (t_.joinable()) t_.join();
+	}
+
+	bool AudioCaptureRaw::start(callback* cb) {
+		assert(cb);
+		assert(continueCapture == false);
+		if(onceAudioInit == false)
+				onceAudioInit = setConfiguration();
+		assert(onceAudioInit);
 		if (onceAudioInit) {
 			continueCapture = true;
-			std::thread threadObj([&] {
-				callback* myob = ob;
-				while (continueCapture) {
-					if (!onceAudioInit)
-					{
-						onceAudioInit = setConfiguration();
-					}
-
-					if (onceAudioInit)
-						readPacket(rawbuffer, myob);
-					else
-					{
-						printf(" \n\n  *****setConfiguration() failed...\n");
-					}
-				}
-			});
-			threadObj.detach();
+			t_ = std::thread{ &AudioCaptureRaw::startThread, this, cb };
 		}
-		return continueCapture;
+			
+		return onceAudioInit;
+	}
+
+	std::string AudioCaptureRaw::logs() {
+		const auto log = loger_.str();
+		/*loger_.clear();
+		assert(log != loger_.str());*/
+		return log;
+	}
+
+	void AudioCaptureRaw::startThread(callback* cb)
+	{
+		while (continueCapture) {
+			if (!onceAudioInit)
+			{
+				onceAudioInit = setConfiguration();
+			}
+
+			if (onceAudioInit)
+				readPacket(rawbuffer, cb);
+			else
+			{
+				loger_ << "\nset configuration fails\n";
+			}
+		}
+			
 	}
 
 	void AudioCaptureRaw::readPacket(UINT8 *buf, callback* ob)
@@ -255,15 +277,14 @@ namespace AudioCapture {
 
 				onceAudioInit = false;
 				if (hr == AUDCLNT_E_DEVICE_INVALIDATED)
-					printf("\nAUDCLNT_E_DEVICE_INVALIDATED");
+					loger_ << "\nAUDCLNT_E_DEVICE_INVALIDATED" << std::endl;
 				else if (hr == AUDCLNT_E_SERVICE_NOT_RUNNING)
-					printf("\AUDCLNT_E_SERVICE_NOT_RUNNING");
+					loger_ << "\nAUDCLNT_E_SERVICE_NOT_RUNNING" << std::endl;
 				else if (hr == E_POINTER)
-					printf("\E_POINTER");
-				printf("\n\n  *****GetNextPacketSize()... failed.. \n");
+					loger_ << "\nE_POINTER" << std::endl;
+				loger_ << "\n\n  *****GetNextPacketSize()... failed.. \n" << std::endl;
 
 				return;
-				//return 0;			
 			}
 			else if (nNextPacketSize == 0)
 			{
@@ -308,10 +329,9 @@ namespace AudioCapture {
 				pAudioCaptureClient_->Release();
 
 				onceAudioInit = false;
-				printf("\n\n  *****GetNextPacketSize()... failed.. \n");
+				loger_ << "\n\n  *****GetNextPacketSize()... failed.. " << std::endl;
 
 				return;
-				//return 0;
 			}
 
 			long lBytesToWrite = nNumFramesToRead * nBlockAlign_; // nBlockAlign is "audio block size" or frame size, for one audio segment...
@@ -327,28 +347,19 @@ namespace AudioCapture {
 				pAudioCaptureClient_->Release();
 
 				onceAudioInit = false;
-				printf("\n\n  *****ReleaseBuffer()... failed.. \n");
+				loger_ << "\n\n  *****ReleaseBuffer()... failed.. " << std::endl;
 
 				return;
-				//return 0;							
 			}
 
-			ob->capturedData(buf, lBytesToWrite);
+			ob->onData(buf, lBytesToWrite, bitsPerSample, sampleRate, numberOfChannels, nNumFramesToRead);
 
 		}
 		catch (...)
 		{
-			std::cout << "Error bcoz of headphone plugin...";
+			loger_ << "Error bcoz of headphone plugin..." << std::endl;
 		}
 
 	}
 
-	void AudioCaptureRaw::stopThread(bool value) {
-		continueCapture = false;
-	}
-
-	void AudioCaptureRaw::InitExit()
-	{
-		pAudioCaptureClient_->Release();
-	}
 }	//AudioCapture
