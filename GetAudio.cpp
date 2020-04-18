@@ -229,7 +229,7 @@ namespace AudioCapture {
 		assert(continueCapture == false);
 		if(onceAudioInit == false)
 				onceAudioInit = setConfiguration();
-		assert(onceAudioInit);
+		//assert(onceAudioInit);
 		if (onceAudioInit) {
 			continueCapture = true;
 			t_ = std::thread{ &AudioCaptureRaw::startThread, this, cb };
