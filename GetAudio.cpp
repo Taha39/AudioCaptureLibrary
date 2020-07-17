@@ -4,6 +4,7 @@
 #include <cassert>
 #include <iostream>
 #include <sstream>
+#include <Functiondiscoverykeys_devpkey.h>
 
 
 #define REFTIMES_PER_SEC  10000000
@@ -13,20 +14,173 @@ const IID IID_IAudioClient = __uuidof(IAudioClient);
 
 static std::ostringstream loger_;
 
-namespace AudioCapture {
+#define SAFE_RELEASE(punk)  \
+              if ((punk) != NULL)  \
+                { (punk)->Release(); (punk) = NULL; }
 
-	bool AudioCaptureRaw::setConfiguration()
-	{
-		IMMDevice *m_pMMDevice;
+struct release_helper {
+	IUnknown* resource = nullptr;
+	release_helper(IUnknown* ptr) :resource{ ptr } {}
+	~release_helper() { if (resource)resource->Release(); }
+};
 
-		HRESULT hr = getDefaultDevice(&m_pMMDevice); // so it can re-place our pointer...
-		if (FAILED(hr))
+namespace detail {
+	grt::mic_list get_mic_list() {
+		IMMDeviceEnumerator *pMMDeviceEnumerator;
+
+		HRESULT hr = CoInitialize(0);
+		assert(SUCCEEDED(hr));
+		// activate a device enumerator
+		hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+			__uuidof(IMMDeviceEnumerator),
+			(void**)&pMMDeviceEnumerator);
+		assert(SUCCEEDED(hr));
+		release_helper enumerator_releaser{ pMMDeviceEnumerator };
+
+		IMMDeviceCollection *pCollection = NULL;
+		hr = pMMDeviceEnumerator->EnumAudioEndpoints(
+			eCapture, DEVICE_STATE_ACTIVE,
+			&pCollection);
+		assert(SUCCEEDED(hr));
+		release_helper collection_releaser{ pCollection };
+		UINT  count;
+		hr = pCollection->GetCount(&count);
+		assert(SUCCEEDED(hr));
+		assert(count > 0);
+		grt::mic_list list;
+		list.reserve(count);
+		// Each loop prints the name of an endpoint device.
+		for (ULONG i = 0; i < count; i++)
 		{
-			return false;
+			IMMDevice *pEndpoint = NULL;
+			// Get pointer to endpoint number i.
+			hr = pCollection->Item(i, &pEndpoint);
+			assert(SUCCEEDED(hr));
+			LPWSTR pwszID = NULL;
+			// Get the endpoint ID string.
+			hr = pEndpoint->GetId(&pwszID);
+			assert(SUCCEEDED(hr));
+			IPropertyStore *pProps = NULL;
+			hr = pEndpoint->OpenPropertyStore(
+					STGM_READ, &pProps);
+			assert(SUCCEEDED(hr));
+
+			PROPVARIANT varName;
+			// Initialize container for property value.
+			PropVariantInit(&varName);
+			
+			// Get the endpoint's friendly-name property.
+			hr = pProps->GetValue(
+				PKEY_Device_FriendlyName, &varName);
+
+			assert(SUCCEEDED(hr));
+
+			grt::device_info info;
+			const std::wstring id = pwszID;
+			info.id_ = { id.begin(), id.end() };
+			info.index_ = i;
+			info.kind_ = "mic";
+			const std::wstring name = varName.pwszVal;
+			info.name_ = { name.begin(), name.end() };
+			list.push_back(info);
+
+				// Print endpoint friendly name and endpoint ID.
+			//	printf("Endpoint %d: \"%S\" (%S)\n",
+				//	i, varName.pwszVal, pwszID);
+
+			CoTaskMemFree(pwszID);
+			//pwszID = NULL;
+			PropVariantClear(&varName);
+			SAFE_RELEASE(pProps)
+			SAFE_RELEASE(pEndpoint)
 		}
 
+		return list;
+
+	}
+
+	IMMDevice*  get_device(grt::device_info device) {
+		if (device.id_.empty()) return nullptr;
+		IMMDeviceEnumerator *pMMDeviceEnumerator = nullptr;
+
+		auto hr = CoInitialize(0);
+		if (FAILED(hr)) {
+			assert(false);
+			return nullptr;
+		}
+		// activate a device enumerator
+		hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+			__uuidof(IMMDeviceEnumerator),
+			(void**)&pMMDeviceEnumerator);
+		
+		if (FAILED(hr))
+		{
+			assert(false);
+			return nullptr;
+		}
+		release_helper enumerator_releaser{ pMMDeviceEnumerator };
+		const std::wstring id{ device.id_.begin(), device.id_.end() };
+		IMMDevice* imDevice = nullptr;
+		pMMDeviceEnumerator->GetDevice(id.c_str(), &imDevice);
+		return imDevice;
+
+	}
+
+
+	IMMDevice* getDefaultDevice(){
+
+		HRESULT hr = S_OK;
+		IMMDeviceEnumerator *pMMDeviceEnumerator;
+
+		hr = CoInitialize(0);
+
+		// activate a device enumerator
+		hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+			__uuidof(IMMDeviceEnumerator),
+			(void**)&pMMDeviceEnumerator);
+
+		if (FAILED(hr))
+		{
+			loger_ << "CoCreateInstance(IMMDeviceEnumerator) failed: hr =" << hr << std::endl;
+			return nullptr;
+		}
+		release_helper enumerator_releaser{ pMMDeviceEnumerator };
+		// get the default render endpoint
+		IMMDevice *ppMMDevice = nullptr;
+		hr = pMMDeviceEnumerator->GetDefaultAudioEndpoint(eCapture, eConsole, &ppMMDevice);
+		
+		if (FAILED(hr))
+		{
+			loger_ << "IMMDeviceEnumerator::GetDefaultAudioEndpoint failed: hr = " << hr << std::endl;
+		}
+
+		return ppMMDevice;
+	}
+
+
+}//namespace detail
+
+namespace AudioCapture {
+
+	grt::mic_list get_mic_list() {
+		return detail::get_mic_list();
+	}
+
+	bool AudioCaptureRaw::setConfiguration(grt::device_info device)
+	{
+		IMMDevice *m_pMMDevice = detail::get_device(device);
+		if (m_pMMDevice == nullptr) {
+			loger_ << "Audio setConfiguration failed to get selected device trying for default device \n";
+			m_pMMDevice  = detail::getDefaultDevice();
+			if (m_pMMDevice == nullptr) {
+				loger_ << "Audio setConfiguration failed to get default device \n";
+				assert(false);
+				return false;
+			}
+		}
+		 
 		// activate an (the default, for us, since we want loopback) IAudioClient
-		hr = m_pMMDevice->Activate(__uuidof(IAudioClient),
+		auto hr = m_pMMDevice->Activate(__uuidof(IAudioClient),
 			CLSCTX_ALL, NULL,
 			(void**)&pAudioClient_);
 
@@ -182,36 +336,36 @@ namespace AudioCapture {
 	}
 
 	//todo: no need to return HRESULT, return true/false
-	HRESULT AudioCaptureRaw::getDefaultDevice(IMMDevice **ppMMDevice)
-	{
-		HRESULT hr = S_OK;
-		IMMDeviceEnumerator *pMMDeviceEnumerator;
+	//HRESULT AudioCaptureRaw::getDefaultDevice(IMMDevice **ppMMDevice)
+	//{
+	//	HRESULT hr = S_OK;
+	//	IMMDeviceEnumerator *pMMDeviceEnumerator;
 
-		hr = CoInitialize(0);
+	//	hr = CoInitialize(0);
 
-		// activate a device enumerator
-		hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
-			__uuidof(IMMDeviceEnumerator),
-			(void**)&pMMDeviceEnumerator);
+	//	// activate a device enumerator
+	//	hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
+	//		__uuidof(IMMDeviceEnumerator),
+	//		(void**)&pMMDeviceEnumerator);
 
-		if (FAILED(hr))
-		{
-			loger_ << "CoCreateInstance(IMMDeviceEnumerator) failed: hr =" << hr << std::endl;
-			return hr;
-		}
+	//	if (FAILED(hr))
+	//	{
+	//		loger_ << "CoCreateInstance(IMMDeviceEnumerator) failed: hr =" << hr << std::endl;
+	//		return hr;
+	//	}
 
-		// get the default render endpoint
-		hr = pMMDeviceEnumerator->GetDefaultAudioEndpoint(eCapture, eConsole, ppMMDevice);
-		pMMDeviceEnumerator->Release();
+	//	// get the default render endpoint
+	//	hr = pMMDeviceEnumerator->GetDefaultAudioEndpoint(eCapture, eConsole, ppMMDevice);
+	//	pMMDeviceEnumerator->Release();
 
-		if (FAILED(hr))
-		{
-			loger_ << "IMMDeviceEnumerator::GetDefaultAudioEndpoint failed: hr = " << hr << std::endl;
-			return hr;
-		}
+	//	if (FAILED(hr))
+	//	{
+	//		loger_ << "IMMDeviceEnumerator::GetDefaultAudioEndpoint failed: hr = " << hr << std::endl;
+	//		return hr;
+	//	}
 
-		return S_OK;
-	}
+	//	return S_OK;
+	//}
 
 	AudioCaptureRaw::~AudioCaptureRaw() {
 		if (continueCapture) stop();
@@ -224,15 +378,15 @@ namespace AudioCapture {
 		if (t_.joinable()) t_.join();
 	}
 
-	bool AudioCaptureRaw::start(callback* cb) {
+	bool AudioCaptureRaw::start(callback* cb, grt::device_info device) {
 		assert(cb);
 		assert(continueCapture == false);
 		if(onceAudioInit == false)
-				onceAudioInit = setConfiguration();
+				onceAudioInit = setConfiguration(device);
 		//assert(onceAudioInit);
 		if (onceAudioInit) {
 			continueCapture = true;
-			t_ = std::thread{ &AudioCaptureRaw::startThread, this, cb };
+			t_ = std::thread{ &AudioCaptureRaw::startThread, this, cb, device };
 		}
 			
 		return onceAudioInit;
@@ -245,12 +399,12 @@ namespace AudioCapture {
 		return log;
 	}
 
-	void AudioCaptureRaw::startThread(callback* cb)
+	void AudioCaptureRaw::startThread(callback* cb, grt::device_info device)
 	{
 		while (continueCapture) {
 			if (!onceAudioInit)
 			{
-				onceAudioInit = setConfiguration();
+				onceAudioInit = setConfiguration(device);
 			}
 
 			if (onceAudioInit)
