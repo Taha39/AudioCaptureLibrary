@@ -129,10 +129,10 @@ namespace detail {
 		IMMDeviceEnumerator *pMMDeviceEnumerator = nullptr;
 
 		auto hr = CoInitialize(0);
-		if (FAILED(hr)) {
+	/*	if (FAILED(hr)) {
 			assert(false);
 			return nullptr;
-		}
+		}*/
 		// activate a device enumerator
 		hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
 			__uuidof(IMMDeviceEnumerator),
