@@ -13,7 +13,7 @@ namespace AudioCapture {
 	public:
 		~AudioCaptureRaw() override;
 		void stop() override;
-		bool start(callback* cb) override;
+		bool start(callback* cb, grt::device_info device) override;
 		std::string logs() override;
 
 	private:
@@ -32,11 +32,13 @@ namespace AudioCapture {
 		size_t numberOfChannels{ 0 };
 
 	private:
-		bool setConfiguration();
-		HRESULT getDefaultDevice(IMMDevice **ppMMDevice);
+		bool setConfiguration(grt::device_info device);
+		//HRESULT getDefaultDevice(IMMDevice **ppMMDevice);
 		void readPacket(UINT8 *buf, callback* ob);
-		void startThread(callback* ob);
+		void startThread(callback* ob, grt::device_info device);
 	};
+
+	grt::mic_list get_mic_list();
 }	//AudioCapture
 
 #endif//_RAW_AUDIO_CAPTURERE_H__
