@@ -14,39 +14,59 @@ const IID IID_IAudioClient = __uuidof(IAudioClient);
 
 static std::ostringstream loger_;
 
-#define SAFE_RELEASE(punk)  \
-              if ((punk) != NULL)  \
-                { (punk)->Release(); (punk) = NULL; }
-
 struct release_helper {
 	IUnknown* resource = nullptr;
 	release_helper(IUnknown* ptr) :resource{ ptr } {}
 	~release_helper() { if (resource)resource->Release(); }
 };
 
+struct Unintializer {
+	~Unintializer() {
+		CoUninitialize();
+	}
+};
+
 namespace detail {
 	grt::mic_list get_mic_list() {
-		IMMDeviceEnumerator *pMMDeviceEnumerator;
+		IMMDeviceEnumerator *pMMDeviceEnumerator = nullptr;;
 
 		HRESULT hr = CoInitialize(0);
-		assert(SUCCEEDED(hr));
+		if (FAILED(hr)) {
+			loger_ << "failed in cointilze mic list \n";
+			assert(false);
+			return grt::mic_list{};
+		}
+		
+		Unintializer unintializer_helper{};
 		// activate a device enumerator
 		hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
 			__uuidof(IMMDeviceEnumerator),
 			(void**)&pMMDeviceEnumerator);
-		assert(SUCCEEDED(hr));
+		if (FAILED(hr)) {
+			loger_ << "failed in coCreateInstance mic list \n";
+			assert(false);
+			return grt::mic_list{};
+		}
 		release_helper enumerator_releaser{ pMMDeviceEnumerator };
 
 		IMMDeviceCollection *pCollection = NULL;
 		hr = pMMDeviceEnumerator->EnumAudioEndpoints(
 			eCapture, DEVICE_STATE_ACTIVE,
 			&pCollection);
-		assert(SUCCEEDED(hr));
+		if (FAILED(hr)) {
+			loger_ << "failed in deviceenumerator mic list \n";
+			assert(false);
+			return grt::mic_list{};
+		}
 		release_helper collection_releaser{ pCollection };
 		UINT  count;
 		hr = pCollection->GetCount(&count);
-		assert(SUCCEEDED(hr));
-		assert(count > 0);
+		if (FAILED(hr)) {
+			loger_ << "failed in getCount mic list \n";
+			assert(false);
+			return grt::mic_list{};
+		}
+	
 		grt::mic_list list;
 		list.reserve(count);
 		// Each loop prints the name of an endpoint device.
@@ -55,16 +75,26 @@ namespace detail {
 			IMMDevice *pEndpoint = NULL;
 			// Get pointer to endpoint number i.
 			hr = pCollection->Item(i, &pEndpoint);
-			assert(SUCCEEDED(hr));
+			if (FAILED(hr)) {
+				loger_ << "failed in collection item mic list \n";
+				continue;
+			}
+			release_helper endpoint_releaser{ pEndpoint };
 			LPWSTR pwszID = NULL;
 			// Get the endpoint ID string.
 			hr = pEndpoint->GetId(&pwszID);
-			assert(SUCCEEDED(hr));
+			if (FAILED(hr)) {
+				loger_ << "failed in getid mic list \n";
+				continue;
+			}
 			IPropertyStore *pProps = NULL;
 			hr = pEndpoint->OpenPropertyStore(
 					STGM_READ, &pProps);
-			assert(SUCCEEDED(hr));
-
+			if (FAILED(hr)) {
+				loger_ << "failed in open property mic list \n";
+				continue;
+			}
+			release_helper props_release(pProps);
 			PROPVARIANT varName;
 			// Initialize container for property value.
 			PropVariantInit(&varName);
@@ -73,7 +103,10 @@ namespace detail {
 			hr = pProps->GetValue(
 				PKEY_Device_FriendlyName, &varName);
 
-			assert(SUCCEEDED(hr));
+			if (FAILED(hr)) {
+				loger_ << "failed in GetValue mic list \n";
+				continue;
+			}
 
 			grt::device_info info;
 			const std::wstring id = pwszID;
@@ -84,15 +117,7 @@ namespace detail {
 			info.name_ = { name.begin(), name.end() };
 			list.push_back(info);
 
-				// Print endpoint friendly name and endpoint ID.
-			//	printf("Endpoint %d: \"%S\" (%S)\n",
-				//	i, varName.pwszVal, pwszID);
-
 			CoTaskMemFree(pwszID);
-			//pwszID = NULL;
-			PropVariantClear(&varName);
-			SAFE_RELEASE(pProps)
-			SAFE_RELEASE(pEndpoint)
 		}
 
 		return list;
