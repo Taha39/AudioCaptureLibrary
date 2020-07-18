@@ -31,13 +31,13 @@ namespace detail {
 		IMMDeviceEnumerator *pMMDeviceEnumerator = nullptr;;
 
 		HRESULT hr = CoInitialize(0);
-		if (FAILED(hr)) {
+		/*if (FAILED(hr)) {
 			loger_ << "failed in cointilze mic list \n";
 			assert(false);
 			return grt::mic_list{};
 		}
 		
-		Unintializer unintializer_helper{};
+		Unintializer unintializer_helper{};*/
 		// activate a device enumerator
 		hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
 			__uuidof(IMMDeviceEnumerator),
